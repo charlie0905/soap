@@ -1,0 +1,146 @@
+package tech.witty.corebankingproxy.service.router;
+
+import lombok.extern.slf4j.Slf4j;
+import tech.witty.corebankingproxy.model.CoreBankingProxyException;
+import tech.witty.corebankingproxy.model.codes.Status;
+
+import javax.net.ssl.HttpsURLConnection;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.ConnectException;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLConnection;
+
+
+@Slf4j
+public class HttpSoapInvoker implements SoapInvoker{
+
+	@Override
+	public String invokeWebService(String soapServiceUrl, String request, String transactionReferenceNumber,
+			Integer connectionTimeout) throws CoreBankingProxyException {
+
+		URL url;
+		URLConnection urlConnection;
+		String contentType;
+		HttpURLConnection httpUrlConnection;
+		byte[] payload;
+		String response;
+		
+		
+		
+		log.debug("Request XML For SOAP Call :: " + request);
+
+		try {
+
+			contentType = "text/xml; charset=utf-8";
+
+			url = new URL(soapServiceUrl);
+			urlConnection = url.openConnection();
+			httpUrlConnection = (HttpURLConnection) urlConnection;
+			payload = request.getBytes();
+			httpUrlConnection.setRequestProperty("Content-Length", String.valueOf(payload.length));
+			httpUrlConnection.setRequestProperty("Content-Type", contentType);
+
+			if (connectionTimeout != null) {
+
+				httpUrlConnection.setConnectTimeout(connectionTimeout);
+			}
+
+			httpUrlConnection.setRequestMethod("POST");
+			httpUrlConnection.setDoOutput(true);
+			httpUrlConnection.setDoInput(true);
+		} catch (Exception finException) {
+
+			throw new CoreBankingProxyException(Status.FAILURE, "Error in SOAP call to Core Banking", null);
+		}
+			try {
+				response = callWebService(urlConnection, payload, false, transactionReferenceNumber);
+			}catch(CoreBankingProxyException exception) {
+				
+				throw new CoreBankingProxyException(Status.FAILURE, exception.getMessage(), null);
+			}
+			
+		
+
+		return response;
+	}
+
+	private String callWebService(URLConnection urlConnection, byte[] payload, Boolean isHttps, String correlationId)
+			throws CoreBankingProxyException {
+		OutputStream outputStream;
+		InputStreamReader inputReader = null;
+		BufferedReader bufferedReder = null;
+		String response = null;
+		String line = null;
+		StringBuilder allLines = new StringBuilder();
+
+		try {
+			outputStream = urlConnection.getOutputStream();
+			outputStream.write(payload);
+			outputStream.close();
+
+			inputReader = new InputStreamReader(urlConnection.getInputStream());
+			bufferedReder = new BufferedReader(inputReader);
+
+			if (isHttps) {
+				((HttpsURLConnection) urlConnection).getResponseCode();
+				((HttpsURLConnection) urlConnection).getResponseMessage();
+			} else {
+				((HttpURLConnection) urlConnection).getResponseCode();
+				((HttpURLConnection) urlConnection).getResponseMessage();
+			}
+
+			while ((line = bufferedReder.readLine()) != null) {
+				allLines.append(line);
+				
+			}
+			response = allLines.toString();
+		}
+		catch(ConnectException exception) {
+			
+			throw new CoreBankingProxyException(Status.FAILURE, "Core Banking Server is unavailable" , null);
+		}
+		
+		catch (Exception exception) {
+		    try {
+			if (isHttps) {
+				inputReader = new InputStreamReader(((HttpsURLConnection) urlConnection).getErrorStream());
+			} else {
+				inputReader = new InputStreamReader(((HttpURLConnection) urlConnection).getErrorStream());
+				
+			}
+
+			
+				bufferedReder = new BufferedReader(inputReader);
+				while ((line = bufferedReder.readLine()) != null) {
+					allLines.append(line);
+					
+				}
+
+			} catch (IOException ioException) {
+				
+			}
+
+			throw new CoreBankingProxyException(Status.FAILURE, "Error While SOAP Call to Core Banking Server", null);
+		} finally {
+			try {
+				if (inputReader != null) {
+					inputReader.close();
+				}
+
+				if (bufferedReder != null) {
+					bufferedReder.close();
+				}
+			} catch (IOException ioException) {
+
+			}
+		}
+
+		return response;
+	}
+
+
+}
